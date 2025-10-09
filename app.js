@@ -256,6 +256,9 @@ iZB0hilqruPAyRu+cURQejucKrLagE1W69QS2di+2u6Ut8B4Th/LL2ilVo63UjpM
 7wIDAQAB
 -----END PUBLIC KEY-----`;
 const APP_ID = "e407600d-a432-49d4-b62f-f99c0ddde8c7";
+const APP_SECRET = "aadc0a11-7e19-41dd-a949-8fcf8a6650ed";
+const APP_URL = "https://wix-webhook.vercel.app";
+const REDIRECT_URL = `${APP_URL}/auth/callback`;
 
 const client = createClient({
     auth: AppStrategy({
@@ -285,6 +288,101 @@ app.post("/webhook", express.text(), async (request, response) => {
     }
 
     response.status(200).send();
+});
+
+app.get("/install", (req, res) => {
+    const state = crypto.randomBytes(16).toString("hex");
+    stateStore[state] = true;
+
+    const wixInstallUrl = `https://www.wix.com/installer/install?appId=${APP_ID}&redirectUrl=${encodeURIComponent(
+        REDIRECT_URL
+    )}&state=${state}`;
+
+    res.redirect(wixInstallUrl);
+});
+
+app.get("/auth/callback", async (req, res) => {
+    const { code, instanceId, state } = req.query;
+
+    if (!state || !stateStore[state]) {
+        return res.status(400).send("❌ Invalid or missing state parameter");
+    }
+    delete stateStore[state];
+
+    if (!code) {
+        return res.status(400).send("❌ Missing code query parameter");
+    }
+
+    const response = await fetch(
+        "https://www.wix.com/_api/applications/v1/oauth/access-token",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({
+                grant_type: "authorization_code",
+                client_id: APP_ID,
+                client_secret: APP_SECRET,
+                code,
+                redirect_uri: REDIRECT_URL
+            })
+        }
+    );
+
+
+    const text = await response.text();
+    console.log("💡 Wix token response raw:", text);
+
+    return res.status(200).send(`<pre>${text}</pre>`);
+
+    // try {
+    //     const response = await fetch(
+    //         "https://www.wix.com/_api/applications/v1/oauth/access-token",
+    //         {
+    //             method: "POST",
+    //             headers: { "Content-Type": "application/json" },
+    //             body: JSON.stringify({
+    //                 grant_type: "authorization_code",
+    //                 client_id: APP_ID,
+    //                 client_secret: APP_SECRET,
+    //                 code,
+    //                 redirect_uri: REDIRECT_URL,
+    //             }),
+    //         }
+    //     );
+
+    //     const text = await response.text();
+    //     console.log("💡 Wix token response:", text);
+
+    //     let data;
+    //     try {
+    //         data = JSON.parse(text);
+    //     } catch {
+    //         return res.status(500).send("❌ Failed to parse Wix token response. See server logs.");
+    //     }
+
+    //     if (!data.access_token) {
+    //         return res.status(400).send("❌ Failed to get access token");
+    //     }
+
+    //     await saveTokens(instanceId, data);
+
+    //     const closeUrl = `https://www.wix.com/installer/close-window?access_token=${data.access_token}`;
+
+    //     res.send(`
+    //   <h2>✅ App Installed Successfully!</h2>
+    //   <p><b>Instance ID:</b> ${instanceId}</p>
+    //   <p><b>Access Token:</b> ${data.access_token}</p>
+    //   <p><b>Refresh Token:</b> ${data.refresh_token}</p>
+    //   <p><a href="${closeUrl}" target="_blank">Close Wix consent window</a></p>
+    //   <small>You can close this window now.</small>
+    // `);
+    // } catch (err) {
+    //     console.error("❌ OAuth token exchange failed:", err);
+    //     res.status(500).send("Internal Server Error");
+    // }
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
