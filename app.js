@@ -348,7 +348,7 @@ app.get("/auth/callback", async (req, res) => {
         );
 
         const text = await response.text();
-        console.log("💡 Wix token response raw:", text);
+        console.log("💡 Wix token response raw: 1234", text);
 
         let data;
         try {
@@ -424,5 +424,6 @@ app.get("/auth/callback", async (req, res) => {
         res.status(500).send(`<pre>❌ Internal Server Error:\n${err.message}</pre>`);
     }
 });
+
 
 app.listen(3000, () => console.log("Server started on port 3000"))
