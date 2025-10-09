@@ -230,6 +230,8 @@ import { products } from "@wix/stores";
 import crypto from "crypto";
 const app = express();
 
+const stateStore = {};
+
 // server.ts
 //
 // Use this sample code to handle webhook events in your
