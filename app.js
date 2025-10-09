@@ -295,9 +295,13 @@ app.post("/webhook", express.text(), async (request, response) => {
 
 app.get("/install", (req, res) => {
     const state = crypto.randomBytes(16).toString("hex");
-    stateStore[state] = true;
+    const token = crypto.randomBytes(16).toString("hex");
 
-    const wixInstallUrl = `https://www.wix.com/installer/install?appId=${APP_ID}&redirectUrl=${encodeURIComponent(
+    // Store both state and token for validation
+    stateStore[state] = { token, timestamp: Date.now() };
+
+    // Step 3: Redirect to Wix installer with token, appId, redirectUrl, and state
+    const wixInstallUrl = `https://www.wix.com/installer/install?token=${token}&appId=${APP_ID}&redirectUrl=${encodeURIComponent(
         REDIRECT_URL
     )}&state=${state}`;
 
@@ -307,85 +311,118 @@ app.get("/install", (req, res) => {
 app.get("/auth/callback", async (req, res) => {
     const { code, instanceId, state } = req.query;
 
+    // Step 4: Validate state parameter
     if (!state || !stateStore[state]) {
         return res.status(400).send("❌ Invalid or missing state parameter");
     }
+
+    // Clean up state after validation
     delete stateStore[state];
 
+    // Validate code and instanceId
     if (!code) {
         return res.status(400).send("❌ Missing code query parameter");
     }
 
-    const response = await fetch(
-        "https://www.wix.com/_api/applications/v1/oauth/access-token",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            body: JSON.stringify({
-                grant_type: "authorization_code",
-                client_id: APP_ID,
-                client_secret: APP_SECRET,
-                code,
-                redirect_uri: REDIRECT_URL
-            })
+    if (!instanceId) {
+        return res.status(400).send("❌ Missing instanceId query parameter");
+    }
+
+    try {
+        // Step 5: Exchange authorization code for access token
+        const response = await fetch(
+            "https://www.wix.com/_api/oauth/access",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify({
+                    grant_type: "authorization_code",
+                    client_id: APP_ID,
+                    client_secret: APP_SECRET,
+                    code
+                })
+            }
+        );
+
+        const text = await response.text();
+        console.log("💡 Wix token response raw:", text);
+
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseError) {
+            console.error("❌ Failed to parse token response:", parseError);
+            return res.status(500).send(`<pre>❌ Failed to parse Wix token response:\n${text}</pre>`);
         }
-    );
 
+        // Check if token exchange was successful
+        if (!data.access_token) {
+            console.error("❌ No access token in response:", data);
+            return res.status(400).send(`<pre>❌ Failed to get access token:\n${text}</pre>`);
+        }
 
-    const text = await response.text();
-    console.log("💡 Wix token response raw:", text);
+        // Save tokens to your database
+        await saveTokens(instanceId, {
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            expires_in: data.expires_in
+        });
 
-    return res.status(200).send(`<pre>${text}</pre>`);
+        // Step 6 (Optional): Close the consent window
+        const closeUrl = `https://www.wix.com/installer/close-window?access_token=${data.access_token}`;
 
-    // try {
-    //     const response = await fetch(
-    //         "https://www.wix.com/_api/applications/v1/oauth/access-token",
-    //         {
-    //             method: "POST",
-    //             headers: { "Content-Type": "application/json" },
-    //             body: JSON.stringify({
-    //                 grant_type: "authorization_code",
-    //                 client_id: APP_ID,
-    //                 client_secret: APP_SECRET,
-    //                 code,
-    //                 redirect_uri: REDIRECT_URL,
-    //             }),
-    //         }
-    //     );
+        // Step 7 (Optional): Send BI event to mark app as configured
+        // You can do this here if your app doesn't require additional setup
+        // or later after user completes configuration
+        try {
+            await fetch("https://www.wix.com/_api/app-management/v1/bi-event", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": data.access_token
+                },
+                body: JSON.stringify({
+                    eventName: "APP_FINISHED_CONFIGURATION"
+                })
+            });
+        } catch (biError) {
+            console.error("⚠️ Failed to send BI event:", biError);
+            // Don't fail the installation if BI event fails
+        }
 
-    //     const text = await response.text();
-    //     console.log("💡 Wix token response:", text);
+        // Return success page with close window option
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Installation Successful</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; }
+                    h2 { color: #28a745; }
+                    .info { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                    .button { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <h2>✅ App Installed Successfully!</h2>
+                <div class="info">
+                    <p><b>Instance ID:</b> ${instanceId}</p>
+                    <p><b>Access Token:</b> ${data.access_token.substring(0, 20)}...</p>
+                    <p><b>Refresh Token:</b> ${data.refresh_token ? data.refresh_token.substring(0, 20) + '...' : 'N/A'}</p>
+                </div>
+                <a href="${closeUrl}" class="button">Close Wix Window & Complete Setup</a>
+                <p><small>You can close this window now.</small></p>
+            </body>
+            </html>
+        `);
 
-    //     let data;
-    //     try {
-    //         data = JSON.parse(text);
-    //     } catch {
-    //         return res.status(500).send("❌ Failed to parse Wix token response. See server logs.");
-    //     }
-
-    //     if (!data.access_token) {
-    //         return res.status(400).send("❌ Failed to get access token");
-    //     }
-
-    //     await saveTokens(instanceId, data);
-
-    //     const closeUrl = `https://www.wix.com/installer/close-window?access_token=${data.access_token}`;
-
-    //     res.send(`
-    //   <h2>✅ App Installed Successfully!</h2>
-    //   <p><b>Instance ID:</b> ${instanceId}</p>
-    //   <p><b>Access Token:</b> ${data.access_token}</p>
-    //   <p><b>Refresh Token:</b> ${data.refresh_token}</p>
-    //   <p><a href="${closeUrl}" target="_blank">Close Wix consent window</a></p>
-    //   <small>You can close this window now.</small>
-    // `);
-    // } catch (err) {
-    //     console.error("❌ OAuth token exchange failed:", err);
-    //     res.status(500).send("Internal Server Error");
-    // }
+    } catch (err) {
+        console.error("❌ OAuth token exchange failed:", err);
+        res.status(500).send(`<pre>❌ Internal Server Error:\n${err.message}</pre>`);
+    }
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
