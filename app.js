@@ -370,7 +370,7 @@ app.get("/auth/callback", async (req, res) => {
             console.log("⚠️ First endpoint returned 403, trying alternative endpoint...");
             
             response = await fetch(
-                "https://www.wix.com/_api/oauth2/token",
+                "https://www.wixapis.com/oauth2/token",
                 {
                     method: "POST",
                     headers: {
@@ -490,5 +490,6 @@ Please verify:
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
+
 
 
