@@ -40,46 +40,52 @@ const client = createClient({
     modules: { products },
 });
 
-client.products.onProductChanged((event) => {
-    console.log(`onProductChanged invoked with data:`, event);
-    console.log(`App instance ID:`, event.metadata.instanceId);
-    const myHeaders = new Headers();
-    myHeaders.append("Content-Type", "application/json");
+client.products.onProductChanged(async (event) => {
+    try {
+        console.log("onProductChanged invoked with data:", event);
+        console.log("App instance ID:", event.metadata.instanceId);
 
-    const raw = JSON.stringify({
-        "grant_type": "client_credentials",
-        "client_id": "e407600d-a432-49d4-b62f-f99c0ddde8c7",
-        "client_secret": "aadc0a11-7e19-41dd-a949-8fcf8a6650ed",
-        "instance_id": event.metadata.instanceId
-    });
+        // Request body for OAuth token
+        const tokenBody = {
+            grant_type: "client_credentials",
+            client_id: "id", // replace with your client ID
+            client_secret: "client_secret", // replace with your client secret
+            instance_id: event.metadata.instanceId
+        };
 
-    const requestOptions = {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: raw,
-        redirect: "follow"
-    };
+        // Get access token
+        const tokenResponse = await fetch("https://www.wixapis.com/oauth2/token", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(tokenBody)
+        });
 
-    fetch("https://www.wixapis.com/oauth2/token", requestOptions)
-        .then((response) => response.text())
-        .then((result) => {
-            const myHeaders = new Headers();
-            myHeaders.append("Authorization", `Bearer ${result.access_token}`);
+        const tokenData = await tokenResponse.json();
+        const accessToken = tokenData.access_token;
 
-            const requestOptions = {
-                method: "POST",
-                headers: myHeaders,
-                redirect: "follow"
-            };
+        if (!accessToken) {
+            throw new Error("Failed to get access token");
+        }
 
-            fetch(`https://www.wixapis.com/stores-reader/v1/products/${event.data.productId}`, requestOptions)
-                .then((response) => response.text())
-                .then((result) => console.log(result))
-                .catch((error) => console.error(error));
-        })
-        .catch((error) => console.error(error));
+        // Fetch product details
+        const productResponse = await fetch(
+            `https://www.wixapis.com/stores-reader/v1/products/${event.data.productId}`,
+            {
+                method: "GET", // GET is correct for fetching product details
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+
+        const productData = await productResponse.json();
+        console.log("Product data:", productData);
+    } catch (error) {
+        console.error("Error handling product change:", error);
+    }
 });
 
 app.post("/webhook", express.text(), async (request, response) => {
