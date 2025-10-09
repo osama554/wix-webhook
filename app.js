@@ -316,6 +316,8 @@ app.get("/install", (req, res) => {
 app.get("/auth/callback", async (req, res) => {
     const { code, instanceId, state } = req.query;
 
+    console.log("📥 Received callback with:", { code: code?.substring(0, 20) + '...', instanceId, state });
+
     // Step 4: Validate state parameter
     if (!state || !stateStore[state]) {
         return res.status(400).send("❌ Invalid or missing state parameter");
@@ -333,27 +335,78 @@ app.get("/auth/callback", async (req, res) => {
         return res.status(400).send("❌ Missing instanceId query parameter");
     }
 
+    // Try the token exchange with the correct endpoint
     try {
-        // Step 5: Exchange authorization code for access token
-        const response = await fetch(
+        const tokenRequestBody = {
+            grant_type: "authorization_code",
+            client_id: APP_ID,
+            client_secret: APP_SECRET,
+            code: code
+        };
+
+        console.log("🔑 Token request payload:", {
+            grant_type: tokenRequestBody.grant_type,
+            client_id: tokenRequestBody.client_id,
+            client_secret: tokenRequestBody.client_secret.substring(0, 10) + '...',
+            code: code.substring(0, 20) + '...'
+        });
+
+        // Try the first endpoint (from your original code)
+        let response = await fetch(
             "https://www.wix.com/_api/oauth/access",
             {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
+                    "Content-Type": "application/json"
                 },
-                body: JSON.stringify({
-                    grant_type: "authorization_code",
-                    client_id: APP_ID,
-                    client_secret: APP_SECRET,
-                    code
-                })
+                body: JSON.stringify(tokenRequestBody)
             }
         );
 
+        console.log("📡 First endpoint response status:", response.status);
+
+        // If first endpoint fails with 403, try the alternative endpoint
+        if (response.status === 403) {
+            console.log("⚠️ First endpoint returned 403, trying alternative endpoint...");
+            
+            response = await fetch(
+                "https://www.wix.com/_api/oauth2/token",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(tokenRequestBody)
+                }
+            );
+            
+            console.log("📡 Second endpoint response status:", response.status);
+        }
+
         const text = await response.text();
-        console.log("💡 Wix token response raw:", text);
+        console.log("💡 Response body:", text);
+
+        if (!response.ok) {
+            console.error("❌ Token request failed");
+            return res.status(response.status).send(`
+                <pre>❌ Failed to exchange authorization code for token
+
+Status: ${response.status}
+Response: ${text}
+
+Request Details:
+- Endpoint tried: https://www.wix.com/_api/oauth/access
+- Grant Type: authorization_code
+- Client ID: ${APP_ID}
+- Code (first 20 chars): ${code.substring(0, 20)}...
+- Instance ID: ${instanceId}
+
+Please verify:
+1. Your APP_SECRET is correct in your .env file
+2. The authorization code hasn't expired (valid for 10 minutes)
+3. You haven't already used this authorization code
+</pre>`);
+        }
 
         let data;
         try {
@@ -366,8 +419,10 @@ app.get("/auth/callback", async (req, res) => {
         // Check if token exchange was successful
         if (!data.access_token) {
             console.error("❌ No access token in response:", data);
-            return res.status(400).send(`<pre>❌ Failed to get access token:\n${text}</pre>`);
+            return res.status(400).send(`<pre>❌ Failed to get access token:\n${JSON.stringify(data, null, 2)}</pre>`);
         }
+
+        console.log("✅ Successfully received access token");
 
         // Save tokens to your database
         await saveTokens(instanceId, {
@@ -381,7 +436,7 @@ app.get("/auth/callback", async (req, res) => {
 
         // Step 7 (Optional): Send BI event to mark app as configured
         try {
-            await fetch("https://www.wix.com/_api/app-management/v1/bi-event", {
+            const biResponse = await fetch("https://www.wix.com/_api/app-management/v1/bi-event", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -391,6 +446,7 @@ app.get("/auth/callback", async (req, res) => {
                     eventName: "APP_FINISHED_CONFIGURATION"
                 })
             });
+            console.log("📊 BI event response status:", biResponse.status);
         } catch (biError) {
             console.error("⚠️ Failed to send BI event:", biError);
         }
@@ -415,17 +471,24 @@ app.get("/auth/callback", async (req, res) => {
                     <p><b>Access Token:</b> ${data.access_token.substring(0, 20)}...</p>
                     <p><b>Refresh Token:</b> ${data.refresh_token ? data.refresh_token.substring(0, 20) + '...' : 'N/A'}</p>
                 </div>
-                <a href="${closeUrl}" class="button">Close Wix Window & Complete Setup</a>
-                <p><small>You can close this window now.</small></p>
+                <p>Redirecting to close window...</p>
+                <a href="${closeUrl}" class="button">Click here if not redirected</a>
+                <script>
+                    // Auto-redirect after 1 second
+                    setTimeout(() => {
+                        window.location.href = '${closeUrl}';
+                    }, 1000);
+                </script>
             </body>
             </html>
         `);
 
     } catch (err) {
         console.error("❌ OAuth token exchange failed:", err);
-        res.status(500).send(`<pre>❌ Internal Server Error:\n${err.message}</pre>`);
+        res.status(500).send(`<pre>❌ Internal Server Error:\n${err.message}\n${err.stack}</pre>`);
     }
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
+
 
