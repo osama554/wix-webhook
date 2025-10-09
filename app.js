@@ -293,40 +293,57 @@ app.post("/webhook", express.text(), async (request, response) => {
     response.status(200).send();
 });
 
-app.get("/install", (req, res) => {
-    // Step 1: Wix sends you here with a token
+// This is your APP URL that you configured in Wix dashboard
+// Wix will redirect here FIRST with a token parameter
+app.get("/", (req, res) => {
     const { token } = req.query;
-    
+
+    // If no token, show a landing page
     if (!token) {
-        return res.status(400).send("❌ Missing token parameter from Wix");
+        return res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>My Wix App</title>
+            </head>
+            <body>
+                <h1>Welcome to My Wix App</h1>
+                <p>Please install this app from the Wix App Market.</p>
+            </body>
+            </html>
+        `);
     }
+
+    // Step 2: Wix redirected here with a token
+    console.log("📥 Received token from Wix:", token.substring(0, 20) + '...');
 
     // Generate state for CSRF protection
     const state = crypto.randomBytes(16).toString("hex");
     stateStore[state] = { timestamp: Date.now() };
 
-    // Step 3: Redirect to Wix installer with the token Wix gave you
-    const wixInstallUrl = `https://www.wix.com/installer/install?token=${token}&appId=${APP_ID}&redirectUrl=${encodeURIComponent(
+    // Step 3: Redirect back to Wix installer with the token
+    const wixInstallUrl = `https://www.wix.com/installer/install?token=${encodeURIComponent(token)}&appId=${APP_ID}&redirectUrl=${encodeURIComponent(
         REDIRECT_URL
     )}&state=${state}`;
 
+    console.log("🔄 Redirecting to Wix installer...");
     res.redirect(wixInstallUrl);
 });
 
 app.get("/auth/callback", async (req, res) => {
     const { code, instanceId, state } = req.query;
 
-    console.log("📥 Received callback with:", { 
-        code: code?.substring(0, 20) + '...', 
-        instanceId, 
-        state 
+    console.log("📥 Received callback with:", {
+        code: code?.substring(0, 20) + '...',
+        instanceId,
+        state
     });
 
     // Step 4: Validate state parameter
     if (!state || !stateStore[state]) {
         return res.status(400).send("❌ Invalid or missing state parameter");
     }
-    
+
     // Clean up state after validation
     delete stateStore[state];
 
@@ -341,7 +358,6 @@ app.get("/auth/callback", async (req, res) => {
 
     try {
         // Step 5: Exchange authorization code for access token
-        // CORRECT ENDPOINT: https://www.wixapis.com/oauth2/token
         const tokenRequestBody = {
             grant_type: "authorization_code",
             client_id: APP_ID,
@@ -381,11 +397,6 @@ Request Details:
 - Client ID: ${APP_ID}
 - Code (first 20 chars): ${code.substring(0, 20)}...
 - Instance ID: ${instanceId}
-
-Please verify:
-1. Your APP_SECRET is correct in your .env file
-2. The authorization code hasn't expired (valid for 10 minutes)
-3. You haven't already used this authorization code
 </pre>`);
         }
 
@@ -397,7 +408,6 @@ Please verify:
             return res.status(500).send(`<pre>❌ Failed to parse Wix token response:\n${text}</pre>`);
         }
 
-        // Check if token exchange was successful
         if (!data.access_token) {
             console.error("❌ No access token in response:", data);
             return res.status(400).send(`<pre>❌ Failed to get access token:\n${JSON.stringify(data, null, 2)}</pre>`);
@@ -412,10 +422,10 @@ Please verify:
             expires_in: data.expires_in
         });
 
-        // Step 6 (Optional): Close the consent window
+        // Step 6: Close the consent window
         const closeUrl = `https://www.wix.com/installer/close-window?access_token=${data.access_token}`;
 
-        // Step 7 (Optional): Send BI event to mark app as configured
+        // Step 7: Send BI event to mark app as configured
         try {
             const biResponse = await fetch("https://www.wixapis.com/_api/app-management/v1/bi-event", {
                 method: "POST",
@@ -432,7 +442,7 @@ Please verify:
             console.error("⚠️ Failed to send BI event:", biError);
         }
 
-        // Return success page with close window option
+        // Return success page with close window redirect
         res.send(`
             <!DOCTYPE html>
             <html>
@@ -455,7 +465,6 @@ Please verify:
                 <p>Redirecting to close window...</p>
                 <a href="${closeUrl}" class="button">Click here if not redirected</a>
                 <script>
-                    // Auto-redirect after 1 second
                     setTimeout(() => {
                         window.location.href = '${closeUrl}';
                     }, 1000);
@@ -471,7 +480,3 @@ Please verify:
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
-
-
-
-
