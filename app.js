@@ -294,13 +294,18 @@ app.post("/webhook", express.text(), async (request, response) => {
 });
 
 app.get("/install", (req, res) => {
+    // Step 1: Wix sends you here with a token
+    const { token } = req.query;
+    
+    if (!token) {
+        return res.status(400).send("❌ Missing token parameter from Wix");
+    }
+
+    // Generate state for CSRF protection
     const state = crypto.randomBytes(16).toString("hex");
-    const token = crypto.randomBytes(16).toString("hex");
+    stateStore[state] = { timestamp: Date.now() };
 
-    // Store both state and token for validation
-    stateStore[state] = { token, timestamp: Date.now() };
-
-    // Step 3: Redirect to Wix installer with token, appId, redirectUrl, and state
+    // Step 3: Redirect to Wix installer with the token Wix gave you
     const wixInstallUrl = `https://www.wix.com/installer/install?token=${token}&appId=${APP_ID}&redirectUrl=${encodeURIComponent(
         REDIRECT_URL
     )}&state=${state}`;
@@ -315,7 +320,7 @@ app.get("/auth/callback", async (req, res) => {
     if (!state || !stateStore[state]) {
         return res.status(400).send("❌ Invalid or missing state parameter");
     }
-
+    
     // Clean up state after validation
     delete stateStore[state];
 
@@ -348,7 +353,7 @@ app.get("/auth/callback", async (req, res) => {
         );
 
         const text = await response.text();
-        console.log("💡 Wix token response raw: 1234", text);
+        console.log("💡 Wix token response raw:", text);
 
         let data;
         try {
@@ -375,8 +380,6 @@ app.get("/auth/callback", async (req, res) => {
         const closeUrl = `https://www.wix.com/installer/close-window?access_token=${data.access_token}`;
 
         // Step 7 (Optional): Send BI event to mark app as configured
-        // You can do this here if your app doesn't require additional setup
-        // or later after user completes configuration
         try {
             await fetch("https://www.wix.com/_api/app-management/v1/bi-event", {
                 method: "POST",
@@ -390,7 +393,6 @@ app.get("/auth/callback", async (req, res) => {
             });
         } catch (biError) {
             console.error("⚠️ Failed to send BI event:", biError);
-            // Don't fail the installation if BI event fails
         }
 
         // Return success page with close window option
@@ -425,5 +427,5 @@ app.get("/auth/callback", async (req, res) => {
     }
 });
 
-
 app.listen(3000, () => console.log("Server started on port 3000"))
+
