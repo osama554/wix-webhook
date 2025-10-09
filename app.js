@@ -3,7 +3,7 @@
 // import { AppStrategy, OAuthStrategy, createClient } from "@wix/sdk";
 // import { products, productsV3 } from "@wix/stores";
 // import dotenv from "dotenv";
-// import crypto from "crypto";
+import crypto from "crypto";
 // import { saveTokens, getTokensByInstanceId } from "./db.js";
 
 // dotenv.config();
@@ -227,6 +227,7 @@
 import express from "express";
 import { AppStrategy, createClient } from "@wix/sdk";
 import { products } from "@wix/stores";
+import crypto from "crypto";
 const app = express();
 
 // server.ts
