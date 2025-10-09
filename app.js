@@ -316,7 +316,11 @@ app.get("/install", (req, res) => {
 app.get("/auth/callback", async (req, res) => {
     const { code, instanceId, state } = req.query;
 
-    console.log("📥 Received callback with:", { code: code?.substring(0, 20) + '...', instanceId, state });
+    console.log("📥 Received callback with:", { 
+        code: code?.substring(0, 20) + '...', 
+        instanceId, 
+        state 
+    });
 
     // Step 4: Validate state parameter
     if (!state || !stateStore[state]) {
@@ -335,8 +339,9 @@ app.get("/auth/callback", async (req, res) => {
         return res.status(400).send("❌ Missing instanceId query parameter");
     }
 
-    // Try the token exchange with the correct endpoint
     try {
+        // Step 5: Exchange authorization code for access token
+        // CORRECT ENDPOINT: https://www.wixapis.com/oauth2/token
         const tokenRequestBody = {
             grant_type: "authorization_code",
             client_id: APP_ID,
@@ -344,16 +349,10 @@ app.get("/auth/callback", async (req, res) => {
             code: code
         };
 
-        console.log("🔑 Token request payload:", {
-            grant_type: tokenRequestBody.grant_type,
-            client_id: tokenRequestBody.client_id,
-            client_secret: tokenRequestBody.client_secret.substring(0, 10) + '...',
-            code: code.substring(0, 20) + '...'
-        });
+        console.log("🔑 Requesting token from wixapis.com...");
 
-        // Try the first endpoint (from your original code)
-        let response = await fetch(
-            "https://www.wix.com/_api/oauth/access",
+        const response = await fetch(
+            "https://www.wixapis.com/oauth2/token",
             {
                 method: "POST",
                 headers: {
@@ -363,25 +362,7 @@ app.get("/auth/callback", async (req, res) => {
             }
         );
 
-        console.log("📡 First endpoint response status:", response.status);
-
-        // If first endpoint fails with 403, try the alternative endpoint
-        if (response.status === 403) {
-            console.log("⚠️ First endpoint returned 403, trying alternative endpoint...");
-            
-            response = await fetch(
-                "https://www.wixapis.com/oauth2/token",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify(tokenRequestBody)
-                }
-            );
-            
-            console.log("📡 Second endpoint response status:", response.status);
-        }
+        console.log("📡 Response status:", response.status);
 
         const text = await response.text();
         console.log("💡 Response body:", text);
@@ -395,7 +376,7 @@ Status: ${response.status}
 Response: ${text}
 
 Request Details:
-- Endpoint tried: https://www.wix.com/_api/oauth/access
+- Endpoint: https://www.wixapis.com/oauth2/token
 - Grant Type: authorization_code
 - Client ID: ${APP_ID}
 - Code (first 20 chars): ${code.substring(0, 20)}...
@@ -436,7 +417,7 @@ Please verify:
 
         // Step 7 (Optional): Send BI event to mark app as configured
         try {
-            const biResponse = await fetch("https://www.wix.com/_api/app-management/v1/bi-event", {
+            const biResponse = await fetch("https://www.wixapis.com/_api/app-management/v1/bi-event", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -490,6 +471,7 @@ Please verify:
 });
 
 app.listen(3000, () => console.log("Server started on port 3000"))
+
 
 
 
