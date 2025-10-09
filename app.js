@@ -45,15 +45,13 @@ client.products.onProductChanged(async (event) => {
         console.log("onProductChanged invoked with data:", event);
         console.log("App instance ID:", event.metadata.instanceId);
 
-        // Request body for OAuth token
         const tokenBody = {
             grant_type: "client_credentials",
-            client_id: "id", // replace with your client ID
-            client_secret: "client_secret", // replace with your client secret
+            client_id: "e407600d-a432-49d4-b62f-f99c0ddde8c7",
+            client_secret: "aadc0a11-7e19-41dd-a949-8fcf8a6650ed",
             instance_id: event.metadata.instanceId
         };
 
-        // Get access token
         const tokenResponse = await fetch("https://www.wixapis.com/oauth2/token", {
             method: "POST",
             headers: {
