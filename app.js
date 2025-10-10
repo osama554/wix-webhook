@@ -61,6 +61,7 @@ client.products.onProductChanged(async (event) => {
         });
 
         const tokenData = await tokenResponse.json();
+        console.log(tokenData);
         const accessToken = tokenData.access_token;
 
         if (!accessToken) {
