@@ -80,8 +80,9 @@ client.products.onProductChanged(async (event) => {
         );
 
         const productData = await productResponse.json();
-        productData.products.forEach((product, index) => {
-            console.log(`Product #${index + 1}: ${product.name} (ID: ${product.id})`);
+        const productsArray = productData.products || [productData];
+        productsArray.forEach((product, index) => {
+            console.log(`Product #${index + 1}:`);
             console.table(product);
         });
     } catch (error) {
