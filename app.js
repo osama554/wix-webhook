@@ -71,7 +71,7 @@ client.products.onProductChanged(async (event) => {
         const productResponse = await fetch(
             `https://www.wixapis.com/stores-reader/v1/products/${event.data.productId}`,
             {
-                method: "GET", // GET is correct for fetching product details
+                method: "GET",
                 headers: {
                     "Authorization": `Bearer ${accessToken}`,
                     "Content-Type": "application/json"
@@ -80,7 +80,10 @@ client.products.onProductChanged(async (event) => {
         );
 
         const productData = await productResponse.json();
-        console.log("Product data:", productData);
+        productData.products.forEach((product, index) => {
+            console.log(`Product #${index + 1}: ${product.name} (ID: ${product.id})`);
+            console.table(product);
+        });
     } catch (error) {
         console.error("Error handling product change:", error);
     }
