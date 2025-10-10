@@ -80,7 +80,7 @@ client.products.onProductChanged(async (event) => {
         );
 
         const productData = await productResponse.json();
-        console.log("Product data:", productData);
+        console.log("Full product object:", JSON.stringify(productData, null, 2));
     } catch (error) {
         console.error("Error handling product change:", error);
     }
