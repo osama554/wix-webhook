@@ -80,11 +80,7 @@ client.products.onProductChanged(async (event) => {
         );
 
         const productData = await productResponse.json();
-        const productsArray = productData.products || [productData];
-        productsArray.forEach((product, index) => {
-            console.log(`Product #${index + 1}:`);
-            console.table(product);
-        });
+        console.log("Product data:", productData);
     } catch (error) {
         console.error("Error handling product change:", error);
     }
