@@ -6,7 +6,15 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json()); // To parse JSON request bodies
 
-const PUBLIC_KEY = process.env.PUBLIC_KEY;
+const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA41+JsKTD7mHLRFSAsmIN
+vFJe26BjtZtCmp+g6vL5NgXGVCovER2QhCQcDIJF6VcLYU5HH3PGYTKa9LSZdOYw
+CVMR/hxK8KhXLTFbhMM+Lh+ybQdthOmmcsa0DGVXt/K2C23JR80+r1Wqi4hmB31Q
+FDTKN6+PREr2aSMhAw2NMRYaJwjIRe3FX7LF++8sjJd+I2Pu9jFRVpa8r7+nty3t
+iUL+I9NjXIcRxIC641DFK1pySfwKh/vBTpACZERmqX5cFC/VwyrV8CfflkGYX4id
+iZB0hilqruPAyRu+cURQejucKrLagE1W69QS2di+2u6Ut8B4Th/LL2ilVo63UjpM
+7wIDAQAB
+-----END PUBLIC KEY-----`;
 const APP_ID = process.env.WIX_APP_ID;
 const APP_SECRET = process.env.WIX_APP_SECRET;
 
