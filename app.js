@@ -255,6 +255,7 @@ app.post("/webhook", express.text(), async (req, res) => {
 app.post("/create-order", async (req, res) => {
     try {
         const { instanceId, orderInput } = req.body;
+        console.log(req.body);
         const result = await createOrderWithWixRates(instanceId, orderInput);
         res.json(result);
     } catch (err) {
