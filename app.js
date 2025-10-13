@@ -56,7 +56,26 @@ async function getStoreCurrency(token) {
     const response = await fetch("https://www.wixapis.com/stores/v2/general-settings", {
         headers: { Authorization: `Bearer ${token}` },
     });
-    const data = await response.json();
+
+    const text = await response.text();
+    if (!text) {
+        console.error("⚠️ Empty response from general-settings API");
+        throw new Error("Empty response from Wix API (general-settings)");
+    }
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        console.error("⚠️ Failed to parse Wix response:", text);
+        throw new Error("Invalid JSON from Wix API");
+    }
+
+    if (!data.generalSettings) {
+        console.error("⚠️ generalSettings missing:", data);
+        throw new Error("Missing generalSettings in response");
+    }
+
     return data.generalSettings.currency || "PKR";
 }
 
