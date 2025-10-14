@@ -2,9 +2,12 @@ import express from "express";
 import { AppStrategy, createClient } from "@wix/sdk";
 import { products } from "@wix/stores";
 import fetch from "node-fetch";
+import Stripe from "stripe";
+import cors from "cors";
 
 const app = express();
-app.use(express.json()); // To parse JSON request bodies
+app.use(cors());
+app.use(express.json());
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA41+JsKTD7mHLRFSAsmIN
@@ -15,8 +18,9 @@ iUL+I9NjXIcRxIC641DFK1pySfwKh/vBTpACZERmqX5cFC/VwyrV8CfflkGYX4id
 iZB0hilqruPAyRu+cURQejucKrLagE1W69QS2di+2u6Ut8B4Th/LL2ilVo63UjpM
 7wIDAQAB
 -----END PUBLIC KEY-----`;
-const APP_ID = process.env.WIX_APP_ID;
-const APP_SECRET = process.env.WIX_APP_SECRET;
+const APP_ID = "e407600d-a432-49d4-b62f-f99c0ddde8c7";
+const APP_SECRET = "aadc0a11-7e19-41dd-a949-8fcf8a6650ed";
+const stripe = new Stripe("sk_test_51IgZ1HAy6mgpkkqAlsASKtiU0l36fMJsDktMByiuJg6DYzo9GNHi9ArHeZkcAr9v11rSH3d6T1tqpDGWk3DeKalz00Xtd7jXBM");
 
 const client = createClient({
     auth: AppStrategy({
@@ -37,6 +41,8 @@ async function getAccessToken(instanceId) {
         instance_id: instanceId,
     };
 
+    console.log("tokenBody", tokenBody);
+
     const tokenResponse = await fetch("https://www.wixapis.com/oauth2/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -45,7 +51,7 @@ async function getAccessToken(instanceId) {
 
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) {
-        console.error("❌ Failed to get access token:", tokenData);
+        console.error("❌ Failed to get access token:", JSON.stringify(tokenData));
         throw new Error("Failed to get access token");
     }
 
@@ -68,137 +74,25 @@ async function getStoreCurrency(token) {
         console.error("Error fetching store currency:", e);
         return "PKR"; // fallback
     }
-}
+};
 
-/* -------------------------------------------------------------------------- */
-/*                           2️⃣ Shipping Calculation                          */
-/* -------------------------------------------------------------------------- */
-async function getShippingRates(instanceId, items, destination) {
-    const token = await getAccessToken(instanceId);
+app.post("/create-payment-intent", async (req, res) => {
+    const { amount, currency } = req.body;
 
-    const body = {
-        lineItems: items.map((i) => ({
-            catalogItemId: i.productId,
-            quantity: i.quantity,
-        })),
-        destination: {
-            address: {
-                country: destination.country,
-                city: destination.city,
-                postalCode: destination.postalCode,
-            },
-        },
-    };
+    const paymentIntent = await stripe.paymentIntents.create({
+        amount, // in smallest currency unit, e.g., PKR 130 = 13000
+        currency,
+        payment_method_types: ["card"]
+    });
 
-    const response = await fetch(
-        "https://www.wixapis.com/stores/v2/calculate-shipping-rates",
-        {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-        }
-    );
-
-    const data = await response.json();
-    if (!data.shippingRates?.length) {
-        throw new Error("No shipping rates returned from Wix");
-    }
-
-    console.log("🚚 Shipping rates:", data.shippingRates);
-    return data;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                               3️⃣ Tax Calculation                           */
-/* -------------------------------------------------------------------------- */
-async function getTax(instanceId, items, destination) {
-    const token = await getAccessToken(instanceId);
-
-    const body = {
-        lineItems: items.map((i) => ({
-            catalogItemId: i.productId,
-            quantity: i.quantity,
-            price: { amount: i.price },
-        })),
-        destination: {
-            address: destination,
-        },
-    };
-
-    const response = await fetch(
-        "https://www.wixapis.com/stores/v2/calculate-taxes",
-        {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-        }
-    );
-
-    const data = await response.json();
-    console.log("💸 Tax result:", data);
-    return data;
-}
+    res.send({ clientSecret: paymentIntent.client_secret, id: paymentIntent.id });
+});
 
 /* -------------------------------------------------------------------------- */
 /*                              4️⃣ Create Order                              */
 /* -------------------------------------------------------------------------- */
-async function createOrderWithWixRates(instanceId, orderInput) {
+async function createOrderWithWixRates(instanceId, paymentIntentId) {
     const token = await getAccessToken(instanceId);
-
-    // Get store currency
-    const currency = await getStoreCurrency(token);
-
-    // 1️⃣ Shipping
-    const shippingData = await getShippingRates(token, orderInput.items, orderInput.address);
-    const shipping = shippingData.shippingRates?.[0];
-    if (!shipping) throw new Error("No shipping rates found");
-
-    // 2️⃣ Tax
-    const taxData = await getTax(token, orderInput.items, orderInput.address);
-    const totalTax = taxData.taxSummary?.totalTax || 0;
-
-    // 3️⃣ Totals
-    const subtotal = orderInput.items.reduce(
-        (acc, i) => acc + i.price * i.quantity,
-        0
-    );
-    const total = subtotal + totalTax + shipping.price.amount;
-
-    // 4️⃣ Build order
-    const orderData = {
-        channelType: "EXTERNAL",
-        currency,
-        buyerInfo: orderInput.buyerInfo,
-        lineItems: orderInput.items.map((i) => ({
-            catalogReference: {
-                appId: APP_ID,
-                catalogItemId: i.productId,
-            },
-            quantity: i.quantity,
-            price: { amount: i.price },
-        })),
-        shippingInfo: {
-            shipmentDetails: {
-                deliveryOption: shipping.title,
-                estimatedDeliveryTime: shipping.deliveryTime,
-            },
-            priceData: { amount: shipping.price.amount },
-            address: orderInput.address,
-        },
-        priceSummary: {
-            subtotal,
-            tax: totalTax,
-            shipping: shipping.price.amount,
-            total,
-        },
-        paymentStatus: "PAID",
-    };
 
     // 5️⃣ Create Wix order
     const response = await fetch("https://www.wixapis.com/ecom/v1/orders", {
@@ -207,7 +101,82 @@ async function createOrderWithWixRates(instanceId, orderInput) {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
         },
-        body: JSON.stringify(orderData),
+        body: JSON.stringify({
+            order: {
+                buyerInfo: {
+                    email: "customer@example.com",
+                    firstName: "Osama",
+                    lastName: "Naeem",
+                },
+                lineItems: [
+                    {
+                        productName: { original: "Signal DL" },
+                        quantity: 1,
+                        price: {
+                            amount: "120.00",
+                            formattedAmount: "PKR 120.00",
+                        },
+                        catalogReference: {
+                            catalogItemId: "b309d740-88f2-f284-4a37-e39cf8e75666",
+                            appId: APP_ID,
+                        },
+                        itemType: { preset: "PHYSICAL" },
+                        totalPriceBeforeTax: {
+                            amount: "120.00",
+                            formattedAmount: "PKR 120.00",
+                        },
+                        totalPriceAfterTax: {
+                            amount: "120.00",
+                            formattedAmount: "PKR 120.00",
+                        },
+                        taxDetails: {
+                            taxRate: "0",
+                            totalTax: {
+                                amount: "0",
+                                formattedAmount: "$0.00"
+                            }
+                        }
+                    },
+                ],
+                priceSummary: {
+                    subtotal: { amount: "120.00", formattedAmount: "PKR 120.00" },
+                    shipping: { amount: "10.00", formattedAmount: "PKR 10.00" },
+                    tax: { amount: "0.00", formattedAmount: "PKR 0.00" },
+                    total: { amount: "130.00", formattedAmount: "PKR 130.00" },
+                },
+                shippingInfo: {
+                    carrierId: "c8a08776-c095-4dec-8553-8f9698d86adc",
+                    code: "4a43a709-d4a0-e07e-33e6-9c8618796577",
+                    title: "Standard shipping",
+                    logistics: {
+                        deliveryTime: "3 - 5 business days",
+                        shippingDestination: {
+                            address: {
+                                country: "US",
+                                subdivision: "US-NY",
+                                city: "New York",
+                                postalCode: "10173",
+                                addressLine: "525 5th Ave",
+                                countryFullname: "United States",
+                                subdivisionFullname: "New York"
+                            },
+                        },
+                    },
+                },
+                paymentInfo: {
+                    status: "PAID",
+                    type: "EXTERNAL",
+                    amount: { amount: 120 + 10, formattedAmount: `PKR ${120 + 10}` },
+                    currency: "PKR",
+                    paymentId: paymentIntentId,
+                    gatewayId: "STRIPE"
+                },
+                currency: "PKR",
+                paymentStatus: "PAID",
+                channelInfo: { type: "EXTERNAL" },
+                status: "APPROVED",
+            }
+        }),
     });
 
     const result = await response.json();
@@ -251,16 +220,106 @@ app.post("/webhook", express.text(), async (req, res) => {
     }
 });
 
-// Test route to create order manually (POST JSON body)
-app.post("/create-order", async (req, res) => {
+app.post("/create-wix-order", async (req, res) => {
+    const { paymentIntentId } = req.body;
+
+    const result = await createOrderWithWixRates("4ec820f7-9fcb-4ede-8496-3cf7e5c525ed", paymentIntentId);
+    res.send(result);
+});
+
+function calculateTotals(lineItems = []) {
+    let totalWeight = 0;
+    let totalPrice = 0;
+
+    for (const item of lineItems) {
+        const qty = item.quantity || 1;
+        const itemWeight = item.weight?.value || 0;
+        const itemPrice = item.price?.amount || 0;
+
+        totalWeight += itemWeight * qty;
+        totalPrice += itemPrice * qty;
+    }
+
+    return { totalWeight, totalPrice };
+}
+
+// Helper: generate rates based on logic
+function getRates({ destination, totalWeight, totalPrice, currency }) {
+    const isDomestic = destination?.country === "US"; // Example country
+    const rates = [];
+
+    if (isDomestic) {
+        // 🏠 Domestic Shipping Logic
+        // Base + per weight cost
+        const baseCost = 4.99;
+        const perKg = 2.0;
+        const weightCost = totalWeight * perKg;
+
+        rates.push({
+            code: "STANDARD_DOMESTIC",
+            title: "Standard Shipping (3–5 days)",
+            deliveryTime: { minDays: 3, maxDays: 5 },
+            cost: { amount: baseCost + weightCost, currency },
+        });
+
+        // Free shipping for high-value orders
+        if (totalPrice >= 100) {
+            rates.push({
+                code: "FREE_SHIP",
+                title: "Free Shipping (Orders over $100)",
+                deliveryTime: { minDays: 3, maxDays: 5 },
+                cost: { amount: 0, currency },
+            });
+        }
+
+        // Express Option
+        rates.push({
+            code: "EXPRESS_DOMESTIC",
+            title: "Express Shipping (1–2 days)",
+            deliveryTime: { minDays: 1, maxDays: 2 },
+            cost: { amount: 12.99 + totalWeight * 1.5, currency },
+        });
+    } else {
+        // 🌍 International Shipping Logic
+        const baseIntl = 10.0;
+        const perKgIntl = 5.0;
+        const intlCost = baseIntl + totalWeight * perKgIntl;
+
+        rates.push({
+            code: "INTL_STANDARD",
+            title: "International Standard (7–14 days)",
+            deliveryTime: { minDays: 7, maxDays: 14 },
+            cost: { amount: intlCost, currency },
+        });
+
+        if (totalPrice >= 200) {
+            rates.push({
+                code: "INTL_FREE",
+                title: "Free International Shipping (Orders over $200)",
+                deliveryTime: { minDays: 7, maxDays: 14 },
+                cost: { amount: 0, currency },
+            });
+        }
+    }
+
+    return rates;
+}
+
+// Main endpoint for Wix
+app.post("/v1/getRates", async (req, res) => {
     try {
-        const { instanceId, orderInput } = req.body;
-        console.log(req.body);
-        const result = await createOrderWithWixRates(instanceId, orderInput);
-        res.json(result);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: err.message });
+        const { destination, lineItems, currency = "USD" } = req.body;
+        const { totalWeight, totalPrice } = calculateTotals(lineItems);
+
+        console.log("📦 Calculating rates for order:");
+        console.log(`Weight: ${totalWeight} kg, Price: ${totalPrice} ${currency}`);
+
+        const rates = getRates({ destination, totalWeight, totalPrice, currency });
+
+        res.json({ rates });
+    } catch (error) {
+        console.error("❌ Error calculating rates:", error);
+        res.status(500).json({ error: "Failed to calculate shipping rates" });
     }
 });
 
