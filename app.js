@@ -162,7 +162,8 @@ client.products.onProductChanged(async (event) => {
         const instanceId = event.metadata.instanceId;
         const productId = event.data.productId;
         const accessToken = await getAccessToken(instanceId);
-        await getProduct(accessToken.token, productId);
+        const products = await getProduct(accessToken.token, productId);
+        console.log(products);
     } catch (error) {
         console.error("Error handling product change:", error);
     }
