@@ -380,7 +380,31 @@ function generateShippingFromWix(deliveryProfiles = [], productWeightKg = 1) {
     return rates.join(", ");
 }
 
-function generateOpenAIProductFeed(product, deliveryProfiles = []) {
+const getCategories = async (token) => {
+    try {
+        const categoriesResponse = await fetch(
+            "https://www.wixapis.com/stores/v1/collections/query",
+            {
+                method: "POST",
+                headers: {
+                    Authorization: token,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+        const categoriesData = await categoriesResponse.json();
+        const categoriesTransform = categoriesData.collections.map((cat) => ({
+            id: cat.id,
+            name: cat.name
+        }))
+
+        return categoriesTransform;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function generateOpenAIProductFeed(product, variants = [], deliveryProfiles = [], categories = []) {
     if (!product) throw new Error("Product object is required.");
 
     const priceData = product.priceData || product.price || {};
@@ -389,33 +413,63 @@ function generateOpenAIProductFeed(product, deliveryProfiles = []) {
 
     const shippingString = generateShippingFromWix(deliveryProfiles, weight);
 
-    return {
+    const formattedCategories = categories
+        .filter((item) => product.collectionIds.includes(item.id) && item.name !== "All Products")
+        .map((cat) => `${cat.name} > ${product.name}`)?.[0];
+
+    const feed = {
         enable_search: "true",
         enable_checkout: "true",
         id: product.id,
         title: product.name,
         description: product.description || "No description available.",
         price: `${priceData.price} ${priceData.currency}`,
+        currency: priceData.currency,
         availability: stockData.inStock ? "in_stock" : "out_of_stock",
         inventory_quantity: stockData.quantity ?? 0,
-        shipping: shippingString,
         seller_name: "Chiizu Store",
         seller_url: product.productPageUrl?.base || "",
-        image: product.media?.mainMedia?.image?.url || "",
-        url: `${product.productPageUrl?.base}${product.productPageUrl?.path || ""}`,
-        brand: "Chiizu",
+        image_link: product.media?.mainMedia?.image?.url || "",
+        link: `${product.productPageUrl?.base}${product.productPageUrl?.path || ""}`,
+        brand: product.brand,
         condition: "new",
-        category:
-            product.collectionIds?.length > 0
-                ? product.collectionIds[0]
-                : "general",
+        product_category: formattedCategories,
+        weight: `${weight} kg`,
+        shipping: shippingString,
+        seller_privacy_policy: "https://chiizu.wixstudio.com/privacy",
+        seller_tos: "https://chiizu.wixstudio.com/terms",
+        return_policy: "https://chiizu.wixstudio.com/returns",
+        return_window: 30,
+        popularity_score: 4.7,
+        product_review_count: 58,
+        product_review_rating: 4.8,
     };
+
+    if (variants?.length) {
+        feed.item_group_id = `product_${product.id}`;
+        feed.item_group_title = product.name;
+        feed.variants = variants.map((variant) => ({
+            id: variant.id,
+            title: `${product.name} - ${variant.name || variant.title || ""}`.trim(),
+            sku: variant.sku || `SKU-${variant.id}`,
+            offer_id: `${variant.id}-${priceData.price}`,
+            color: variant.color || "Black",
+            size: variant.size || variant.name || "",
+            price: `${variant.priceData?.price || priceData.price} ${priceData.currency}`,
+            availability: variant.stock?.inStock ? "in_stock" : "out_of_stock",
+            inventory_quantity: variant.stock?.quantity ?? 0,
+            purchase_link: `${product.productPageUrl?.base}${product.productPageUrl?.path}?variant=${variant.id}`,
+        }));
+    }
+
+    return feed;
 };
 
 app.post("/getOpenAIProduct", async (req, res) => {
     const product = await getProduct(req.headers.authorization, req.body.productId);
     const shippment = await getShipment(req.headers.authorization);
-    const result = generateOpenAIProductFeed(product.product, shippment.deliveryProfiles);
+    const categories = await getCategories(req.headers.authorization);
+    const result = generateOpenAIProductFeed(product.product, product.product.variants, shippment.deliveryProfiles, categories);
     res.send(result);
 });
 
@@ -455,6 +509,12 @@ app.post("/webhook", express.text(), async (req, res) => {
         res.status(500).send(`Webhook error: ${err.message}`);
     }
 });
+
+app.get("/getProduct/:id", async (req, res) => {
+    const productId = req.params.id
+    const products = await getProduct(req.headers.authorization, productId);
+    res.send(products);
+})
 
 app.post("/create-wix-order", async (req, res) => {
     const { paymentIntentId } = req.body;
