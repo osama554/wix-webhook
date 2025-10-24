@@ -6,15 +6,18 @@ import Stripe from "stripe";
 import cors from "cors";
 import mongoose from "mongoose";
 import App from "./models/app.js";
+import "dotenv/config";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-await mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-});
+try {
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log("✅ Connected to MongoDB Atlas");
+} catch (err) {
+    console.error("❌ MongoDB connection failed:", err.message);
+}
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA41+JsKTD7mHLRFSAsmIN
