@@ -169,7 +169,7 @@ client.products.onProductChanged(async (event) => {
         const products = await getProduct(accessToken.token, productId);
         console.log(products);
         await App.findOneAndUpdate(
-            { instanceId, "products.productId": productId },
+            { instanceId, "products.id": productId },
             { $set: { "products.$": products.product } },
             { new: true }
         );
