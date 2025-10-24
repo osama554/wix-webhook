@@ -4,20 +4,13 @@ import { products } from "@wix/stores";
 import fetch from "node-fetch";
 import Stripe from "stripe";
 import cors from "cors";
-import mongoose from "mongoose";
 import App from "./models/app.js";
 import "dotenv/config";
+import { connectDB } from "./utils/db.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log("✅ Connected to MongoDB Atlas");
-} catch (err) {
-    console.error("❌ MongoDB connection failed:", err.message);
-}
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA41+JsKTD7mHLRFSAsmIN
@@ -586,6 +579,7 @@ app.post("/addProducts/:instanceId", async (req, res) => {
 });
 
 app.post("/addApp", async (req, res) => {
+    await connectDB();
     try {
         const body = req.body;
         const app = await App.findOne({ instanceId: body.instanceId });
