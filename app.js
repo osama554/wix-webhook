@@ -547,8 +547,8 @@ app.post("/create-wix-order", async (req, res) => {
 
 app.post("/addProducts/:instanceId", async (req, res) => {
     try {
+        await connectDB();
         let data = req.body;
-
         if (!Array.isArray(data)) {
             data = [data];
         }
