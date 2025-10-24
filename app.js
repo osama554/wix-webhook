@@ -162,6 +162,7 @@ const getProduct = async (token, productId) => {
 
 client.products.onProductChanged(async (event) => {
     try {
+        await connectDB();
         const instanceId = event.metadata.instanceId;
         const productId = event.data.productId;
         const accessToken = await getAccessToken(instanceId);
