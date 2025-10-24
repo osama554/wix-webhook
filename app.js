@@ -584,7 +584,7 @@ app.post("/addApp", async (req, res) => {
         const body = req.body;
         const app = await App.findOne({ instanceId: body.instanceId });
         if (app) {
-            res.json({ success: true, message: "App already added" })
+            res.json({ success: true, data: app })
         } else {
             await App.create(body);
             res.json({ success: true, message: "App added" })
