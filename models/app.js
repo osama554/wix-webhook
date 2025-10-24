@@ -17,8 +17,11 @@ const appSchema = new mongoose.Schema({
         type: [mongoose.Schema.Types.Mixed],
         default: [],
     },
-    timestamps: true
-});
+},
+    {
+        timestamps: true,
+    }
+);
 
 const App = mongoose.models.App || mongoose.model("App", appSchema);
 
