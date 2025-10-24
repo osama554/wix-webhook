@@ -166,7 +166,11 @@ client.products.onProductChanged(async (event) => {
         const productId = event.data.productId;
         const accessToken = await getAccessToken(instanceId);
         const products = await getProduct(accessToken.token, productId);
-        console.log(products);
+        await App.findOneAndUpdate(
+            { instanceId, "products.productId": productId },
+            { $set: { "products.$": products.product } },
+            { new: true }
+        );
     } catch (error) {
         console.error("Error handling product change:", error);
     }
