@@ -4,10 +4,17 @@ import { products } from "@wix/stores";
 import fetch from "node-fetch";
 import Stripe from "stripe";
 import cors from "cors";
+import mongoose from "mongoose";
+import App from "./models/app.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+await mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+});
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA41+JsKTD7mHLRFSAsmIN
@@ -404,7 +411,7 @@ const getCategories = async (token) => {
     }
 }
 
-function generateOpenAIProductFeed(product, variants = [], deliveryProfiles = [], categories = []) {
+function generateOpenAIProductFeed(product, variants = [], deliveryProfiles = [], categories = [], checkoutLinks) {
     if (!product) throw new Error("Product object is required.");
 
     const priceData = product.priceData || product.price || {};
@@ -436,13 +443,10 @@ function generateOpenAIProductFeed(product, variants = [], deliveryProfiles = []
         product_category: formattedCategories,
         weight: `${weight} kg`,
         shipping: shippingString,
-        seller_privacy_policy: "https://chiizu.wixstudio.com/privacy",
-        seller_tos: "https://chiizu.wixstudio.com/terms",
-        return_policy: "https://chiizu.wixstudio.com/returns",
+        seller_privacy_policy: checkoutLinks.privacyPolicy.content,
+        seller_tos: checkoutLinks.termsAndConditions.content,
+        return_policy: checkoutLinks.returnPolicy.content,
         return_window: 30,
-        popularity_score: 4.7,
-        product_review_count: 58,
-        product_review_rating: 4.8,
     };
 
     if (variants?.length) {
@@ -465,10 +469,32 @@ function generateOpenAIProductFeed(product, variants = [], deliveryProfiles = []
     return feed;
 };
 
+const getcheckoutLinks = async (token) => {
+    try {
+        const checkoutLinks = await fetch(
+            "https://manage.wix.com/ecom/v1/checkout-settings",
+            {
+                method: "GET",
+                headers: {
+                    Authorization: token,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+        const checkoutLinksData = await checkoutLinks.json();
+
+        return checkoutLinksData.checkoutSettings.checkoutPolicies;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
 app.post("/getOpenAIProduct", async (req, res) => {
     const product = await getProduct(req.headers.authorization, req.body.productId);
     const shippment = await getShipment(req.headers.authorization);
     const categories = await getCategories(req.headers.authorization);
+    const checkoutLinks = await getcheckoutLinks(req.headers.authorization);
+    console.log(checkoutLinks);
     const result = generateOpenAIProductFeed(product.product, product.product.variants, shippment.deliveryProfiles, categories);
     res.send(result);
 });
@@ -521,6 +547,54 @@ app.post("/create-wix-order", async (req, res) => {
 
     const result = await createOrderWithWixRates(req.headers.authorization, paymentIntentId);
     res.send(result);
+});
+
+app.post("/addProducts/:instanceId", async (req, res) => {
+    try {
+        let data = req.body;
+
+        if (!Array.isArray(data)) {
+            data = [data];
+        }
+        const products = data.map((product) => ({
+            ...product
+        }));
+        const updatedApp = await App.findOneAndUpdate(
+            { instanceId: req.params.instanceId },
+            { $push: { products: { $each: products } } },
+            { new: true }
+        );
+
+        if (!updatedApp) {
+            return res.status(404).json({ success: false, message: "App not found for this instanceId" });
+        }
+
+        res.json({
+            success: true,
+            message: `${products.length} product(s) added successfully`,
+            app: updatedApp,
+        });
+    } catch (error) {
+        console.error("Error adding products:", error);
+        res
+            .status(500)
+            .json({ success: false, message: "Server error", error: error.message });
+    }
+});
+
+app.post("/addApp", async (req, res) => {
+    try {
+        const body = req.body;
+        const app = await App.findOne({ instanceId: body.instanceId });
+        if (app) {
+            res.json({ success: true, message: "App already added" })
+        } else {
+            await App.create(body);
+            res.json({ success: true, message: "App added" })
+        }
+    } catch (e) {
+        console.log(e);
+    }
 });
 
 app.listen(3000, () => console.log("🚀 Server started on port 3000"));
